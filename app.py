@@ -11,7 +11,7 @@ def load_data():
 
     try:
         df_expenses = pd.read_csv('total_expenses.csv')
-        df_schedule_i = pd.read_csv('schedule_i.csv')
+        df_schedule_i = pd.read_parquet('schedule_i.parquet')
         df_contractors = pd.read_csv('part_vii_b.csv')
         df_schedule_j = pd.read_csv('schedule_j.csv')
         return df_expenses, df_schedule_i, df_contractors, df_schedule_j
@@ -36,10 +36,10 @@ def main():
 We are using the IPI 990 Data Explorer to draw out key insights into how IPI spends it's money and the networks of non-profits and independent contractors IPI contributes to and is connected to. This will be used to inform our "follow an IPI dollar" research project.
 
 The IPI 990 Data Explorer combines data from about 3,000 IRS Form 990s filed by IPI, IPI's grantees, and the grantees of those grantees. Form 990s are IRS required returns for tax-exempt organizations. Using these forms we look at the following data between 2013-2024: 
-- total expenses; 
-- the amount of grants awarded to other organizations (Schedule I);
-- independent contractor expenses (Part VII-B); and
-- compensation information for certain officers, directors, trustees, key employees, and highest compensated employees (Schedule J).</h2>
+- [total expenses](#total-expenses-overview); 
+- the amount of grants awarded to other organizations ([Schedule I](#schedule-i-grants-and-other-assistance-to-organizations-governments-and-individuals));
+- independent contractor expenses ([Part VII-B](#part-vii-b-independent-contractors)); and
+- compensation information for certain officers, directors, trustees, key employees, and highest compensated employees ([Schedule J](#schedule-j-compensation-information-for-certain-officers-directors-trustees-key-employees-and-highest-compensated-employees)).</h2>
 
 ''',unsafe_allow_html=True)
 
@@ -342,10 +342,8 @@ The IPI 990 Data Explorer combines data from about 3,000 IRS Form 990s filed by 
     i_aggregate = df_i_filtered['grantee_cash_grant'].sum()
     i_avg = i_aggregate/(int(last_year)-int(first_year))
 
-    st.markdown(f'''<h2 style="font-size:20px; font-family:Arial, Helvetica, sans-serif;">Total Grants Given by IPI Network: ${i_aggregate:,.2f}</h2>''', unsafe_allow_html=True)
-    st.markdown(f'''<h2 style="font-size:20px; font-family:Arial, Helvetica, sans-serif;">Total Grants Given by IPI Network (yearly average): ${i_avg:,.2f}</h2>''', unsafe_allow_html=True)
-
-    
+    st.markdown(f'''<h2 style="font-size:20px; font-family:Arial, Helvetica, sans-serif;">Total Grants Awarded: ${i_aggregate:,.2f}</h2>''', unsafe_allow_html=True)
+    st.markdown(f'''<h2 style="font-size:20px; font-family:Arial, Helvetica, sans-serif;">Total Grants Awarded (yearly average): ${i_avg:,.2f}</h2>''', unsafe_allow_html=True)
 
     i_total = df_i_filtered.groupby(['grantee_business_name']).agg(
         grantee_cash_grant=('grantee_cash_grant','sum')
@@ -362,7 +360,7 @@ The IPI 990 Data Explorer combines data from about 3,000 IRS Form 990s filed by 
     with bar:
 
         fig = px.bar(i_total_top_10,
-            title="Top 10 Grant Amounts by Grantee Business Name", 
+            title=f"Top 10 Grant Amounts by Grantee Business Name, All Years", 
             x='grantee_business_name', 
             y='grantee_cash_grant',
             labels={'grantee_business_name': 'Grantee Business Name', 'grantee_cash_grant': 'Grant Amount'},
@@ -379,25 +377,73 @@ The IPI 990 Data Explorer combines data from about 3,000 IRS Form 990s filed by 
     with pie:
         fig = px.pie(i_total,values='grantee_cash_grant',
         names='grantee_business_name',
-        title='Grant Distribution by Grantee Business Name',
+        title='Grant Distribution by Grantee Business Name, All Years',
         height=700)
         fig.update_traces(textfont_size=20,
                   marker=dict(line=dict(color='#000000', width=2)))
 
         st.plotly_chart(fig, width="stretch")
 
-    st.write(i_total)
 
     # i_by_year = df_i_filtered.groupby(['tax_year','grantee_business_name']).agg(
     #     grantee_cash_grant_total=('grantee_cash_grant','sum')
     # ).reset_index()
+    
+    grantees = i_total['grantee_business_name'].tolist()
+
+    # get grantees eins from df_schedule_i
+
+    df_schedule_i_grantees = df_schedule_i[df_schedule_i['grantee_business_name'].isin(grantees)]
+
+    # group by business name and get first ein
+    df_schedule_i_grantees = df_schedule_i_grantees.groupby('grantee_business_name').first().reset_index()
+
+    # get unique grantee_eins
+    df_schedule_i_grantees = df_schedule_i_grantees.drop_duplicates(subset=['grantee_ein'])
+    grantee_lookup = df_schedule_i_grantees['grantee_ein'].tolist()
+
+    ipi_grantees = df_schedule_i[df_schedule_i['filing_ein'].isin(grantee_lookup)]
+
+    ipi_grantees = ipi_grantees[ipi_grantees['grantee_ein'] == 412057028]
+
+    ipi_grantees_all = df_schedule_i[df_schedule_i['grantee_ein']== 412057028]
+
+    ipi_grantees_all = ipi_grantees_all.sort_values(by='grantee_cash_grant',ascending=False)
+
+    ipi_grantees_all = ipi_grantees_all.groupby(['filing_org']).agg(
+        grantee_amt = ('grantee_cash_grant','sum')
+    ).reset_index()
 
 
-    st.subheader(f"Grants Awarded by Year, {first_year}-{last_year}") 
+    ipi_grantees = ipi_grantees.groupby(['filing_org']).agg(
+        grantee_amt=('grantee_cash_grant','sum'),
+        grantee_name =('grantee_business_name','first')
+    ).reset_index()
+
+    ipi_grantees = ipi_grantees['filing_org'].tolist()
+
+    st.header(f"Donations to IPI from Organizations that {filing_org} Donated To")
+
+    def highlight_rows(row):
+        if row['filing_org'] in ipi_grantees:
+            return ['background-color: yellow'] * len(row)
+        else:
+            return [''] * len(row)
+
+    ipi_grantees_all = ipi_grantees_all.sort_values(by='grantee_amt',ascending=False)
 
     st.dataframe(
-        i_by_year.style.format({
-            'grantee_cash_grant_total': '${:,.0f}'
+        ipi_grantees_all.style.format({
+            'grantee_amt': '${:,.0f}'
+            }).apply(highlight_rows, axis=1),
+        hide_index=True)
+
+
+    st.subheader(f"All Grants Awarded by Grantee, {first_year}-{last_year}") 
+
+    st.dataframe(
+        i_total.style.format({
+            'grantee_cash_grant': '${:,.0f}'
             }),
         hide_index=True)
 
