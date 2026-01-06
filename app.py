@@ -422,6 +422,12 @@ The IPI 990 Data Explorer combines data from about 3,000 IRS Form 990s filed by 
 
     ipi_grantees = ipi_grantees['filing_org'].tolist()
 
+    # add total donations to IPI (sum ipi_grantees_all)
+
+    ipi_total_donations = ipi_grantees_all['grantee_amt'].sum()
+
+    st.markdown(f'''<h2 style="font-size:20px; font-family:Arial, Helvetica, sans-serif;">In total, organizations in IPI's networks donated: ${ipi_total_donations:,.2f} to IPI</h2>''', unsafe_allow_html=True)
+
     st.header(f"Donations to IPI from Organizations that {filing_org} Donated To")
 
     def highlight_rows(row):
